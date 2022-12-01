@@ -1,15 +1,22 @@
 from contextlib import contextmanager
+from email.mime.text import MIMEText
 import glob
 import os
 import random
+import re
 import requests
 import subprocess
+import smtplib
 
 import arrow
 from ics import Calendar
 from huggingface_hub import login
 import openai
 import torch
+
+import keys
+
+openai.api_key = keys.openai
 
 @contextmanager
 def cd(newdir):
@@ -22,9 +29,8 @@ def cd(newdir):
 
 def pick_calendar_event():
   url = "https://calendar.google.com/calendar/ical/414dfe522ee5194cb0cc3e2256690f57303153496c3e98e5bb53730753989b9a%40group.calendar.google.com/private-9168dfcf8e330c77b23622e7655c52f2/basic.ics"
-  #c = Calendar(bytes.decode(uploaded['valkyrie.savage@gmail.com.ics']))
   c = Calendar(requests.get(url).text) 
-  print(c)
+  #print(c)
 
   #c
   # <Calendar with 118 events and 0 todo>
@@ -46,17 +52,17 @@ def pick_calendar_event():
 
 def generate_text_prompt(base_str, str_type="event"):
     # Calendar events, self-tracking data, (my mom's birthday)
-    if str_type is "event":
+    if str_type == "event":
       return """Tell me five items I need to have before I go to {}:
   1.""".format(
           base_str
       )
-    if str_type is "accomplishment":
+    if str_type == "accomplishment":
       return """Tell me five items I can use to commemorate {}:
   1.""".format(
           base_str
       )
-    if str_type is "sentiment":
+    if str_type == "sentiment":
       return """Tell me five items I should have when I'm feeling {}:
   1.""".format(
           base_str
@@ -86,7 +92,7 @@ def request_completion_from_openai(prompt):
   return result
 
 def create_obj(prompt):
-    Prompt_text = mesh_prompt #@param {type: 'string'}
+    Prompt_text = prompt #@param {type: 'string'}
     Training_iters = 15000 #@param {type: 'integer'}
     Learning_rate = 1e-3 #@param {type: 'number'}
     Training_nerf_resolution = 64  #@param {type: 'integer'}
@@ -108,7 +114,8 @@ def create_obj(prompt):
     obj_f = ''
 
     with cd('stable-dreamfusion'):
-        mesh_command = ['run', 'main.py', '-O', '--text', Prompt_text,
+        mesh_command = ['python', 'main.py', '-O2', 
+                                             '--text', Prompt_text,
                                                 '--workspace', Workspace, 
                                                 '--iters', Training_iters,
                                                 '--lr', Learning_rate,
@@ -119,7 +126,8 @@ def create_obj(prompt):
                                                 '--ckpt', Checkpoint,
                                                 '--save_mesh',
                                                 '--max_steps', Max_steps]
-
+        mesh_command = [str(piece) for piece in mesh_command]
+        #print(' '.join(mesh_command))
         subprocess.run(mesh_command)
         output_folder = os.getcwd() + '/' + Workspace + '/mesh/'
         obj_f = glob.glob(output_folder + "*.obj")[0]
@@ -133,12 +141,41 @@ def slice_mesh(obj_location):
                                                                         '--gcode', obj_f]
     subprocess.run(slice_command)
 
+def alert_user(gcode_f):
+    me = 'objectify@localhost'
+    you = 'valkyrie.savage@gmail.com'
 
-login("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")
+    msg = MIMEText('You have a new file to print! -> %s\nMake sure you start it by the date/time in the filename.' % gcode_f)
+    msg['Subject'] = 'Objectify: I\'ve made a new object for you'
+    msg['From'] = me
+    msg['To'] = you
 
-chosen_event = pick_calendar_event()
-text_prompt = generate_text_prompt(chosen_event)
-text_completion = request_completion_from_openai(text_prompt)
-mesh_prompt = parse_and_pick_result(text_completion)
-obj_f = create_obj(mesh_prompt)
-slice_mesh(obj_f)
+    # Send the message via our own SMTP server, but don't include the
+    # envelope header.
+    s = smtplib.SMTP('localhost')
+    s.sendmail(me, [you], msg.as_string())
+    s.quit()
+
+
+login(keys.huggingface)
+
+def main():
+    # chosen_event = pick_calendar_event()
+    # print(chosen_event)
+    # text_prompt = generate_text_prompt(chosen_event)
+    # print(text_prompt)
+    # text_completion = request_completion_from_openai(text_prompt)
+    # print(text_completion)
+    # mesh_prompt = parse_and_pick_result(text_completion)
+    # print(mesh_prompt)
+    # mesh_prompt = 'a bicycle'
+    # obj_f = create_obj(mesh_prompt)
+    # print(obj_f)
+    gcode_f = slice_mesh(obj_f)
+    print(gcode_f)
+    alert_user(gcode_f)
+
+
+if __name__=='__main__':
+    main() 
+
