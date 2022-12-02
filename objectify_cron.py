@@ -10,6 +10,7 @@ import re
 import requests
 import subprocess
 import smtplib
+import sys
 
 import arrow
 from ics import Calendar
@@ -29,6 +30,16 @@ def cd(newdir):
         yield
     finally:
         os.chdir(prevdir)
+
+def find_newest_obj(folder_to_search='/Users/vwn277/Downloads/',no_older_than=arrow.utcnow().shift(minutes=-10)):
+    newest = ''
+    newest_creation_time = no_older_than
+    for fname in glob.glob(folder_to_search + "*.obj"):
+        created_time = arrow.get(os.stat(fname).st_mtime)
+        if created_time > newest_creation_time: # then it's newer
+            newest = fname
+            newest_creation_time = created_time
+    return newest
 
 def pick_calendar_event():
   url = "https://calendar.google.com/calendar/ical/414dfe522ee5194cb0cc3e2256690f57303153496c3e98e5bb53730753989b9a%40group.calendar.google.com/private-9168dfcf8e330c77b23622e7655c52f2/basic.ics"
@@ -210,8 +221,8 @@ def alert_user(gcode_f):
 #login(keys.huggingface)
 
 def main():
-    chosen_event_name, chosen_event_time = pick_calendar_event()
-    print(chosen_event_name, chosen_event_time)
+    # chosen_event_name, chosen_event_time = pick_calendar_event()
+    # print(chosen_event_name, chosen_event_time)
     # text_prompt = generate_text_prompt(chosen_event)
     # print(text_prompt)
     # text_completion = request_completion_from_openai(text_prompt)
@@ -220,8 +231,10 @@ def main():
     # print(mesh_prompt)
     # mesh_prompt = 'a bicycle'
     # obj_f = create_obj(mesh_prompt)
-    obj_f = "objs/cake.obj"
+    #obj_f = "objs/cake.obj"
+    obj_f = find_newest_obj()
     print(obj_f)
+    chosen_event_time = arrow.get(os.path.split(obj_f)[1].strip('.obj'))
     gcode_f = slice_mesh(obj_f)
     print(gcode_f)
     gcode_f = move_gcode_f(gcode_f, chosen_event_time)
@@ -230,5 +243,4 @@ def main():
 
 
 if __name__=='__main__':
-    main() 
-
+    main()
