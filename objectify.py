@@ -1,5 +1,8 @@
 from contextlib import contextmanager
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import glob
 import os
 import random
@@ -10,7 +13,7 @@ import smtplib
 
 import arrow
 from ics import Calendar
-from huggingface_hub import login
+#from huggingface_hub import login
 import openai
 import torch
 
@@ -48,7 +51,7 @@ def pick_calendar_event():
   print("looking for events between {} and {}...".format(week_start, week_end))
   coming_events = list(c.timeline.overlapping(week_start, week_end))
   event_to_plan_for = random.choice(coming_events)
-  return event_to_plan_for.name
+  return (event_to_plan_for.name, event_to_plan_for.begin)
 
 def generate_text_prompt(base_str, str_type="event"):
     # Calendar events, self-tracking data, (my mom's birthday)
@@ -136,32 +139,79 @@ def create_obj(prompt):
 
 def slice_mesh(obj_location):
     # PrusaSlicer/build/src/prusa-slicer --scale-to-fit 100,100,100 --load crealityplaconfig.ini --gcode bla.obj
-    slice_command = ['~/objectify/PrusaSlicer/build/src/prusa-slicer', '--scale-to-fit', '100x100x100',
-                                                                        '--load', 'crealityplaconfig.ini',
-                                                                        '--gcode', obj_f]
-    subprocess.run(slice_command)
+    slice_command = ['/Users/vwn277/projects/undesign/objs/PrusaSlicer/build/src/prusa-slicer', '--scale-to-fit', '100x100x100',
+                                                                            '--load', 'objs/crealityplaconfig.ini',
+                                                                            '--gcode', obj_location]
+    results = subprocess.check_output(slice_command)
+    # the last line from Prusa Slicer is "Slicing result exported to ..."
+    last_line = results.decode('utf-8').strip().split("\n")[-1]
+    location = last_line.split(" exported to ")[1]
+
+    return location
+
+# from https://stackoverflow.com/questions/15718068/search-file-and-find-exact-match-and-print-line
+def generate_lines_that_start_with(string, fp):
+    for line in fp:
+        if line.startswith(string):
+            yield line
+
+def move_gcode_f(gcode_f, event_time):
+    # find out how long the gcode takes to print
+    # we're looking for a line that says "; estimated printing time (normal mode) = 2h 42m 19s"
+    new_gcode_name = gcode_f
+    with open(gcode_f, "r") as f:
+        default_time_line = '; estimated printing time (normal mode) = 12h'
+        print_time_line = next(generate_lines_that_start_with("; estimated printing time (normal mode)",f),default_time_line)
+        print_time_h = re.search('\s+([0-9]*)h',print_time_line).group(1)
+        print_time_h = int(print_time_h)
+        event_time = event_time.shift(hours=-print_time_h)
+        new_gcode_name = os.path.join(os.path.split(gcode_f)[0], event_time.format('YYYY-MM-DD HH:mm') + ".gcode")
+    os.rename(gcode_f, new_gcode_name)
+    return new_gcode_name
 
 def alert_user(gcode_f):
     me = 'objectify@localhost'
     you = 'valkyrie.savage@gmail.com'
 
-    msg = MIMEText('You have a new file to print! -> %s\nMake sure you start it by the date/time in the filename.' % gcode_f)
+    msg = MIMEMultipart()
+
     msg['Subject'] = 'Objectify: I\'ve made a new object for you'
     msg['From'] = me
     msg['To'] = you
+    msg.attach(MIMEText('You have a new file to print! -> %s\nMake sure you start it by the date/time in the filename.' % gcode_f, "plain"))
+
+    # Open PDF file in binary mode
+    with open(gcode_f, "rb") as attachment:
+        # Add file as application/octet-stream
+        # Email client can usually download this automatically as attachment
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read())
+
+    # Encode file in ASCII characters to send by email    
+    encoders.encode_base64(part)
+
+    # Add header as key/value pair to attachment part
+    part.add_header(
+        "Content-Disposition",
+        f"attachment; filename= {gcode_f}",
+    )
+
+    # Add attachment to message and convert message to string
+    msg.attach(part)
+    text = msg.as_string()
 
     # Send the message via our own SMTP server, but don't include the
     # envelope header.
-    s = smtplib.SMTP('localhost')
-    s.sendmail(me, [you], msg.as_string())
+    s = smtplib.SMTP('localhost:1025')
+    s.sendmail(me, [you], text)
     s.quit()
 
 
-login(keys.huggingface)
+#login(keys.huggingface)
 
 def main():
-    # chosen_event = pick_calendar_event()
-    # print(chosen_event)
+    chosen_event_name, chosen_event_time = pick_calendar_event()
+    print(chosen_event_name, chosen_event_time)
     # text_prompt = generate_text_prompt(chosen_event)
     # print(text_prompt)
     # text_completion = request_completion_from_openai(text_prompt)
@@ -170,8 +220,11 @@ def main():
     # print(mesh_prompt)
     # mesh_prompt = 'a bicycle'
     # obj_f = create_obj(mesh_prompt)
-    # print(obj_f)
+    obj_f = "objs/cake.obj"
+    print(obj_f)
     gcode_f = slice_mesh(obj_f)
+    print(gcode_f)
+    gcode_f = move_gcode_f(gcode_f, chosen_event_time)
     print(gcode_f)
     alert_user(gcode_f)
 
