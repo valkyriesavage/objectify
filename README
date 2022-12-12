@@ -1,3 +1,19 @@
-python -m smtpd -c DebuggingServer -n localhost:1025
+This is code for an altCHI 2023 submission. It takes information about an event from a Google calendar, requests a list of objects needed to attend that event from OpenAI's GPT-3, uses Google's Stable DreamFusion to create a 3D model of an object from the list, and prepares that object for 3D printing.
 
-python main.py
+The code has many moving parts and alternative ways to run it.
+
+On a suitably powerful computer, it can be run locally from objectify.py .
+
+On a Mac with Apple Silicon, we instead used [a CoLab notebook](https://colab.research.google.com/drive/1Kafk2oT5fHdwWHm_sFgl73YvdqwjjrsI) to perform much of the intensive computation, then ran objectify_cron.py locally with a cron job (every 15 minutes).
+
+Various configurations are also required.
+
+You need to get an API key from OpenAI and an account on HuggingFace. Put the appropriate tokens in keys.py .
+
+You may also need to purchase credits on Google CoLab to run the intensive computation sections.
+
+You will likely want to set your own calendar to be pulled from; change this in objectify.py or the notebook.
+
+If you don't have an SMTP server that you can send mail to yourself from, you can run a dummy locally with:
+
+python -m smtpd -c DebuggingServer -n localhost:1025
