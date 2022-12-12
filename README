@@ -1,0 +1,3 @@
+python -m smtpd -c DebuggingServer -n localhost:1025
+
+python main.py
